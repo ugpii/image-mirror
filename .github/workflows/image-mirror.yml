@@ -18,18 +18,11 @@ jobs:
     runs-on: ubuntu-22.04
     # 运行条件 => issues 的 label 包含 image-mirror
     # if: contains(github.event.issue.labels.*.name, 'image-mirror')
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.actor }}
+      cancel-in-progress: true
     # 镜像转换任务的步骤列表
     steps:
-      - name: Create comment
-        if: steps.fc.outputs.comment-id == ''
-        uses: peter-evans/create-or-update-comment@v2
-        with:
-          issue-number: ${{ github.event.issue.number }}
-          body: |
-            Syncing image to TargetRegistry, please wait a moment  
-            [Check the progress](https://github.com/imdingtalk/image-mirror/actions/runs/${{ github.run_id }})
-     
-          reactions: rocket
 
       - name: Check out code
         uses: actions/checkout@v2
@@ -45,6 +38,19 @@ jobs:
         run: |
           python .github/scripts/check_image_format.py "${{ github.event.issue.body }}"
 
+      - name: Add comment if body is not image format
+        if: steps.check_body.outputs.is_image_format == 'false'
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            @${{ github.event.issue.user.login }} 
+            !!!请使用标准镜像格式
+            1. 镜像要带tag,如nginx,请写为nginx:latest
+            2. 标题不重要,issue描述部分,每行一个镜像不要有其他内容,你可以直接更新你的issue
+          reactions: hooray
+          edit-mode: replace
+
       - name: Add image-mirror label if body is image format
         if: steps.check_body.outputs.is_image_format == 'true'
         uses: actions-ecosystem/action-add-labels@v1
@@ -52,11 +58,21 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           labels: 'image-mirror'
 
+      - name: Create comment
+        if: ${{ steps.check_body.outputs.is_image_format == 'true' && steps.fc.outputs.comment-id == '' }}
+        uses: peter-evans/create-or-update-comment@v2
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            Syncing image to TargetRegistry, please wait a moment  
+            [Check the progress](https://github.com/${{ github.repository_owner }}/image-mirror/actions/runs/${{ github.run_id }})    
+          reactions: rocket
+
       - name: prepare
         if: steps.check_body.outputs.is_image_format == 'true'
         run: |
-          wget -q  https://github.com/AliyunContainerService/image-syncer/releases/download/v1.5.0/image-syncer-v1.5.0-linux-amd64.tar.gz
-          tar zxf image-syncer-v1.5.0-linux-amd64.tar.gz 
+          wget -q  https://github.com/AliyunContainerService/image-syncer/releases/download/v1.5.4/image-syncer-v1.5.4-linux-amd64.tar.gz
+          tar zxf image-syncer-v1.5.4-linux-amd64.tar.gz 
           sudo  apt install dos2unix 
       - name: start sync
         if: steps.check_body.outputs.is_image_format == 'true'
@@ -97,6 +113,7 @@ jobs:
             })
 
       - id: get-comment-body
+        if: steps.check_body.outputs.is_image_format == 'true' 
         run: |
           body="$(cat script.md)"
           body="${body//'%'/'%25'}"
@@ -126,13 +143,13 @@ jobs:
           body-includes: Syncing image to TargetRegistry
 
       - name: Add Tips
-        if: ${{ success() }} 
+        if: ${{ success() && steps.check_body.outputs.is_image_format == 'true'  }} 
         uses: peter-evans/create-or-update-comment@v2
         with:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ github.event.issue.number }}
           body: |
-            [Check the progress](https://github.com/imdingtalk/image-mirror/actions/runs/${{ github.run_id }})              
+            [Check the progress](https://github.com/${{ github.repository_owner }}/image-mirror/actions/runs/${{ github.run_id }})              
             ## 镜像信息如下
             - dockerhub-image.yml  
             ```shell
